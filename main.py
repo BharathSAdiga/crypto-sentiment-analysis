@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from src.data_loader import SchemaValidationError, load_project_datasets
+from src.preprocessing import preprocess_datasets
 from src.utils import (
     CHARTS_DIR,
     PROCESSED_DATA_DIR,
@@ -48,14 +49,29 @@ def main() -> None:
 
     try:
         fear_greed, trader_history = load_project_datasets()
+        cleaned_fear_greed, cleaned_trader_history, preprocessing_reports = (
+            preprocess_datasets(fear_greed.dataframe, trader_history.dataframe)
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
+        raise SystemExit(1) from error
+    except ValueError as error:
+        LOGGER.error("Dataset preprocessing failed: %s", error)
         raise SystemExit(1) from error
 
     print()
     print("Loaded datasets:")
     print(f"- {fear_greed.name}: {fear_greed.dataframe.shape}")
     print(f"- {trader_history.name}: {trader_history.dataframe.shape}")
+    print()
+    print("Preprocessed datasets:")
+    print(f"- fear_greed: {cleaned_fear_greed.shape}")
+    print(f"- trader_history: {cleaned_trader_history.shape}")
+    for report in preprocessing_reports:
+        print(
+            f"- {report.dataset_name}: "
+            f"dropped={report.rows_dropped}, duplicates={report.duplicates_removed}"
+        )
 
 
 if __name__ == "__main__":
