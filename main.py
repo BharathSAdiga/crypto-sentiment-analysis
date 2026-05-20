@@ -5,7 +5,11 @@ from __future__ import annotations
 import logging
 
 from src.data_loader import SchemaValidationError, load_project_datasets
-from src.feature_engineering import engineer_features
+from src.feature_engineering import (
+    engineer_features,
+    merge_daily_performance_with_sentiment,
+    merge_trades_with_sentiment,
+)
 from src.preprocessing import preprocess_datasets
 from src.utils import (
     CHARTS_DIR,
@@ -57,6 +61,14 @@ def main() -> None:
             cleaned_fear_greed,
             cleaned_trader_history,
         )
+        trade_sentiment = merge_trades_with_sentiment(
+            trade_features,
+            sentiment_features,
+        )
+        daily_sentiment = merge_daily_performance_with_sentiment(
+            trade_features,
+            sentiment_features,
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
         raise SystemExit(1) from error
@@ -82,6 +94,19 @@ def main() -> None:
     print(f"- sentiment_features: {sentiment_features.shape}")
     print(f"- trade_features: {trade_features.shape}")
     print(f"- trader_metrics: {trader_metrics.shape}")
+    print()
+    print("Merged datasets:")
+    print(f"- trade_sentiment: {trade_sentiment.shape}")
+    print(f"- daily_sentiment: {daily_sentiment.shape}")
+
+    PROCESSED_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    sentiment_features.to_csv(PROCESSED_DATA_DIR / "sentiment_features.csv", index=False)
+    trade_features.to_csv(PROCESSED_DATA_DIR / "trade_features.csv", index=False)
+    trader_metrics.to_csv(PROCESSED_DATA_DIR / "trader_metrics.csv", index=False)
+    trade_sentiment.to_csv(PROCESSED_DATA_DIR / "trade_sentiment.csv", index=False)
+    daily_sentiment.to_csv(PROCESSED_DATA_DIR / "daily_sentiment.csv", index=False)
+    print()
+    print(f"Processed files saved to {PROCESSED_DATA_DIR.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":

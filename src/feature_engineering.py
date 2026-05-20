@@ -132,6 +132,81 @@ def build_trader_metrics(trade_features: pd.DataFrame) -> pd.DataFrame:
     return metrics
 
 
+def normalize_utc_date(series: pd.Series) -> pd.Series:
+    """Convert datetimes to UTC-normalized calendar dates."""
+    return pd.to_datetime(series, errors="coerce", utc=True).dt.normalize()
+
+
+def aggregate_daily_trader_performance(trade_features: pd.DataFrame) -> pd.DataFrame:
+    """Aggregate row-level trades into daily performance metrics."""
+    if "time" not in trade_features.columns:
+        raise ValueError("Trade features must include time")
+
+    daily = trade_features.copy()
+    daily["date"] = normalize_utc_date(daily["time"])
+    daily = daily.dropna(subset=["date"])
+
+    grouped = daily.groupby("date", dropna=False)
+    aggregated = grouped.agg(
+        daily_trades=("closed_pnl", "size"),
+        active_traders=("account", "nunique"),
+        symbols_traded=("symbol", "nunique"),
+        daily_total_pnl=("closed_pnl", "sum"),
+        daily_avg_pnl=("closed_pnl", "mean"),
+        daily_win_rate=("is_win", "mean"),
+        daily_avg_leverage=("leverage", "mean"),
+        daily_avg_size=("size", "mean"),
+        daily_pnl_volatility=("closed_pnl", lambda values: float(values.std(ddof=0))),
+        daily_buy_trades=("trade_direction", lambda values: int((values == "buy").sum())),
+        daily_sell_trades=("trade_direction", lambda values: int((values == "sell").sum())),
+    ).reset_index()
+
+    aggregated["daily_buy_sell_ratio"] = np.where(
+        aggregated["daily_sell_trades"] > 0,
+        aggregated["daily_buy_trades"] / aggregated["daily_sell_trades"],
+        np.where(aggregated["daily_buy_trades"] > 0, np.inf, 0.0),
+    )
+    return aggregated.sort_values("date").reset_index(drop=True)
+
+
+def merge_trades_with_sentiment(
+    trade_features: pd.DataFrame,
+    sentiment_features: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach same-day sentiment labels and scores to each trade."""
+    if "date" not in sentiment_features.columns:
+        raise ValueError("Sentiment features must include date")
+
+    trades = trade_features.copy()
+    sentiment = sentiment_features.copy()
+    trades["date"] = normalize_utc_date(trades["time"])
+    sentiment["date"] = normalize_utc_date(sentiment["date"])
+
+    merged = trades.merge(
+        sentiment[["date", "classification", "sentiment_score", "is_extreme_sentiment"]],
+        on="date",
+        how="left",
+    )
+    return merged.sort_values(["date", "time"]).reset_index(drop=True)
+
+
+def merge_daily_performance_with_sentiment(
+    trade_features: pd.DataFrame,
+    sentiment_features: pd.DataFrame,
+) -> pd.DataFrame:
+    """Merge daily trader-performance aggregates with same-day sentiment."""
+    daily_performance = aggregate_daily_trader_performance(trade_features)
+    sentiment = sentiment_features.copy()
+    sentiment["date"] = normalize_utc_date(sentiment["date"])
+
+    merged = daily_performance.merge(
+        sentiment[["date", "classification", "sentiment_score", "is_extreme_sentiment"]],
+        on="date",
+        how="left",
+    )
+    return merged.sort_values("date").reset_index(drop=True)
+
+
 def engineer_features(
     fear_greed: pd.DataFrame,
     trader_history: pd.DataFrame,
