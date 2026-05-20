@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 
+from src.analysis import run_exploratory_analysis, save_analysis_tables
 from src.data_loader import SchemaValidationError, load_project_datasets
 from src.feature_engineering import (
     engineer_features,
@@ -69,6 +70,11 @@ def main() -> None:
             trade_features,
             sentiment_features,
         )
+        analysis_results = run_exploratory_analysis(
+            trade_sentiment,
+            daily_sentiment,
+            trader_metrics,
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
         raise SystemExit(1) from error
@@ -105,8 +111,10 @@ def main() -> None:
     trader_metrics.to_csv(PROCESSED_DATA_DIR / "trader_metrics.csv", index=False)
     trade_sentiment.to_csv(PROCESSED_DATA_DIR / "trade_sentiment.csv", index=False)
     daily_sentiment.to_csv(PROCESSED_DATA_DIR / "daily_sentiment.csv", index=False)
+    save_analysis_tables(analysis_results, REPORTS_DIR)
     print()
     print(f"Processed files saved to {PROCESSED_DATA_DIR.relative_to(PROJECT_ROOT)}")
+    print(f"Analysis tables saved to {REPORTS_DIR.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":
