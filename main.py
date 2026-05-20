@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from src.data_loader import SchemaValidationError, load_project_datasets
+from src.feature_engineering import engineer_features
 from src.preprocessing import preprocess_datasets
 from src.utils import (
     CHARTS_DIR,
@@ -52,6 +53,10 @@ def main() -> None:
         cleaned_fear_greed, cleaned_trader_history, preprocessing_reports = (
             preprocess_datasets(fear_greed.dataframe, trader_history.dataframe)
         )
+        sentiment_features, trade_features, trader_metrics = engineer_features(
+            cleaned_fear_greed,
+            cleaned_trader_history,
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
         raise SystemExit(1) from error
@@ -72,6 +77,11 @@ def main() -> None:
             f"- {report.dataset_name}: "
             f"dropped={report.rows_dropped}, duplicates={report.duplicates_removed}"
         )
+    print()
+    print("Feature tables:")
+    print(f"- sentiment_features: {sentiment_features.shape}")
+    print(f"- trade_features: {trade_features.shape}")
+    print(f"- trader_metrics: {trader_metrics.shape}")
 
 
 if __name__ == "__main__":
