@@ -21,6 +21,7 @@ from src.utils import (
     configure_logging,
     ensure_directories,
 )
+from src.visualization import generate_visualizations
 
 
 LOGGER = logging.getLogger(__name__)
@@ -75,6 +76,13 @@ def main() -> None:
             daily_sentiment,
             trader_metrics,
         )
+        chart_paths = generate_visualizations(
+            trade_sentiment,
+            daily_sentiment,
+            trader_metrics,
+            analysis_results,
+            CHARTS_DIR,
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
         raise SystemExit(1) from error
@@ -115,6 +123,7 @@ def main() -> None:
     print()
     print(f"Processed files saved to {PROCESSED_DATA_DIR.relative_to(PROJECT_ROOT)}")
     print(f"Analysis tables saved to {REPORTS_DIR.relative_to(PROJECT_ROOT)}")
+    print(f"Charts saved: {len(chart_paths)}")
 
 
 if __name__ == "__main__":
