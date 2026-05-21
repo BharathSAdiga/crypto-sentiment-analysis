@@ -1,0 +1,4 @@
+account,symbol,time,closedPnL,size,side,leverage
+acct_1,BTC,1704067200000,10.5,0.25,buy,5x
+bad,row,with,too,many,columns,for,this,file
+acct_2,ETH,1704153600000,-4.0,0.50,sell,3
