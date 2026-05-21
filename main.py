@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from src.analysis import run_exploratory_analysis, save_analysis_tables
+from src.analysis import (
+    run_advanced_analytics,
+    run_exploratory_analysis,
+    save_advanced_analytics_tables,
+    save_analysis_tables,
+)
 from src.data_loader import SchemaValidationError, load_project_datasets
 from src.feature_engineering import (
     engineer_features,
@@ -76,6 +81,10 @@ def main() -> None:
             daily_sentiment,
             trader_metrics,
         )
+        advanced_results = run_advanced_analytics(
+            trade_sentiment,
+            trader_metrics,
+        )
         chart_paths = generate_visualizations(
             trade_sentiment,
             daily_sentiment,
@@ -120,10 +129,12 @@ def main() -> None:
     trade_sentiment.to_csv(PROCESSED_DATA_DIR / "trade_sentiment.csv", index=False)
     daily_sentiment.to_csv(PROCESSED_DATA_DIR / "daily_sentiment.csv", index=False)
     save_analysis_tables(analysis_results, REPORTS_DIR)
+    save_advanced_analytics_tables(advanced_results, REPORTS_DIR)
     print()
     print(f"Processed files saved to {PROCESSED_DATA_DIR.relative_to(PROJECT_ROOT)}")
     print(f"Analysis tables saved to {REPORTS_DIR.relative_to(PROJECT_ROOT)}")
     print(f"Charts saved: {len(chart_paths)}")
+    print(f"Advanced analytics tables saved: {len(advanced_results.__dict__)}")
 
 
 if __name__ == "__main__":

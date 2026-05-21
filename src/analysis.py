@@ -3,11 +3,18 @@
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", "1")
+
+from scipy import stats
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import StandardScaler
 
 
 LOGGER = logging.getLogger(__name__)
@@ -22,6 +29,17 @@ class AnalysisResults:
     sentiment_profitability: pd.DataFrame
     leverage_by_sentiment: pd.DataFrame
     symbol_performance: pd.DataFrame
+
+
+@dataclass(frozen=True)
+class AdvancedAnalyticsResults:
+    """Advanced trader analytics and statistical test outputs."""
+
+    trader_clusters: pd.DataFrame
+    top_traders: pd.DataFrame
+    worst_traders: pd.DataFrame
+    statistical_tests: pd.DataFrame
+    sentiment_comparisons: pd.DataFrame
 
 
 def _profit_factor(closed_pnl: pd.Series) -> float:
@@ -195,3 +213,188 @@ def save_analysis_tables(results: AnalysisResults, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for table_name, dataframe in results.__dict__.items():
         dataframe.to_csv(output_dir / f"{table_name}.csv", index=True)
+
+
+def cluster_traders(trader_metrics: pd.DataFrame, n_clusters: int = 4) -> pd.DataFrame:
+    """Cluster traders by performance and behavior metrics."""
+    if trader_metrics.empty:
+        return trader_metrics.copy()
+
+    numeric_columns = [
+        "total_trades",
+        "win_rate",
+        "avg_pnl",
+        "total_pnl",
+        "avg_leverage",
+        "buy_sell_ratio",
+        "avg_size",
+        "pnl_volatility",
+        "profit_factor",
+    ]
+    available_columns = [column for column in numeric_columns if column in trader_metrics.columns]
+    clustered = trader_metrics.copy()
+    if not available_columns or len(clustered) < 2:
+        clustered["cluster"] = 0
+        return clustered
+
+    features = clustered[available_columns].replace([np.inf, -np.inf], np.nan)
+    features = features.apply(lambda column: column.fillna(column.median()), axis=0)
+    features = features.fillna(0.0)
+
+    cluster_count = min(n_clusters, len(clustered))
+    scaled_features = StandardScaler().fit_transform(features)
+    model = KMeans(n_clusters=cluster_count, random_state=42, n_init=10)
+    clustered["cluster"] = model.fit_predict(scaled_features)
+    return clustered.sort_values(["cluster", "total_pnl"], ascending=[True, False])
+
+
+def rank_traders(
+    trader_metrics: pd.DataFrame,
+    ranking_column: str = "total_pnl",
+    top_n: int = 10,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Return top and worst traders by the requested ranking column."""
+    if trader_metrics.empty or ranking_column not in trader_metrics.columns:
+        return pd.DataFrame(), pd.DataFrame()
+
+    ranked = trader_metrics.sort_values(ranking_column, ascending=False)
+    top_traders = ranked.head(top_n).reset_index(drop=True)
+    worst_traders = ranked.tail(top_n).sort_values(ranking_column).reset_index(drop=True)
+    return top_traders, worst_traders
+
+
+def run_statistical_tests(trade_sentiment: pd.DataFrame) -> pd.DataFrame:
+    """Run statistical tests comparing trader outcomes across sentiment regimes."""
+    if trade_sentiment.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, float | str]] = []
+    data = trade_sentiment.copy()
+    data["classification"] = data["classification"].fillna("Unknown")
+
+    pnl_groups = [
+        group["closed_pnl"].dropna()
+        for _, group in data.groupby("classification")
+        if len(group["closed_pnl"].dropna()) >= 2
+    ]
+    if len(pnl_groups) >= 2:
+        statistic, p_value = stats.kruskal(*pnl_groups)
+        rows.append(
+            {
+                "test": "Kruskal-Wallis PnL by sentiment",
+                "statistic": float(statistic),
+                "p_value": float(p_value),
+                "interpretation": "PnL distributions differ by sentiment"
+                if p_value < 0.05
+                else "No significant PnL distribution difference detected",
+            }
+        )
+
+    leverage_groups = [
+        group["leverage"].dropna()
+        for _, group in data.groupby("classification")
+        if "leverage" in group and len(group["leverage"].dropna()) >= 2
+    ]
+    if len(leverage_groups) >= 2:
+        statistic, p_value = stats.kruskal(*leverage_groups)
+        rows.append(
+            {
+                "test": "Kruskal-Wallis leverage by sentiment",
+                "statistic": float(statistic),
+                "p_value": float(p_value),
+                "interpretation": "Leverage usage differs by sentiment"
+                if p_value < 0.05
+                else "No significant leverage difference detected",
+            }
+        )
+
+    if {"sentiment_score", "closed_pnl"}.issubset(data.columns):
+        paired = data[["sentiment_score", "closed_pnl"]].dropna()
+        if len(paired) >= 3:
+            statistic, p_value = stats.spearmanr(
+                paired["sentiment_score"],
+                paired["closed_pnl"],
+            )
+            rows.append(
+                {
+                    "test": "Spearman sentiment score vs PnL",
+                    "statistic": float(statistic),
+                    "p_value": float(p_value),
+                    "interpretation": "Sentiment score is associated with PnL"
+                    if p_value < 0.05
+                    else "No significant sentiment-PnL association detected",
+                }
+            )
+
+    if {"sentiment_score", "leverage"}.issubset(data.columns):
+        paired = data[["sentiment_score", "leverage"]].dropna()
+        if len(paired) >= 3:
+            statistic, p_value = stats.spearmanr(
+                paired["sentiment_score"],
+                paired["leverage"],
+            )
+            rows.append(
+                {
+                    "test": "Spearman sentiment score vs leverage",
+                    "statistic": float(statistic),
+                    "p_value": float(p_value),
+                    "interpretation": "Sentiment score is associated with leverage"
+                    if p_value < 0.05
+                    else "No significant sentiment-leverage association detected",
+                }
+            )
+
+    return pd.DataFrame(rows)
+
+
+def compare_sentiment_groups(trade_sentiment: pd.DataFrame) -> pd.DataFrame:
+    """Create side-by-side sentiment comparisons for performance and behavior."""
+    if trade_sentiment.empty:
+        return pd.DataFrame()
+
+    data = trade_sentiment.copy()
+    data["classification"] = data["classification"].fillna("Unknown")
+    summary = data.groupby(["classification", "sentiment_score"], dropna=False).agg(
+        trades=("closed_pnl", "size"),
+        total_pnl=("closed_pnl", "sum"),
+        avg_pnl=("closed_pnl", "mean"),
+        win_rate=("closed_pnl", _win_rate),
+        avg_leverage=("leverage", "mean"),
+        buy_share=("trade_direction", lambda values: float((values == "buy").mean())),
+        avg_size=("size", "mean"),
+    ).reset_index()
+
+    neutral_avg = summary.loc[
+        summary["classification"] == "Neutral",
+        "avg_pnl",
+    ]
+    baseline = float(neutral_avg.iloc[0]) if not neutral_avg.empty else float(summary["avg_pnl"].mean())
+    summary["avg_pnl_vs_neutral"] = summary["avg_pnl"] - baseline
+    return summary.sort_values("sentiment_score", na_position="last").reset_index(drop=True)
+
+
+def run_advanced_analytics(
+    trade_sentiment: pd.DataFrame,
+    trader_metrics: pd.DataFrame,
+) -> AdvancedAnalyticsResults:
+    """Run clustering, trader rankings, statistical tests, and sentiment comparisons."""
+    top_traders, worst_traders = rank_traders(trader_metrics)
+    results = AdvancedAnalyticsResults(
+        trader_clusters=cluster_traders(trader_metrics),
+        top_traders=top_traders,
+        worst_traders=worst_traders,
+        statistical_tests=run_statistical_tests(trade_sentiment),
+        sentiment_comparisons=compare_sentiment_groups(trade_sentiment),
+    )
+    LOGGER.info("Generated advanced analytics tables")
+    return results
+
+
+def save_advanced_analytics_tables(
+    results: AdvancedAnalyticsResults,
+    output_dir: Path,
+) -> None:
+    """Persist advanced analytics tables as CSV files."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for table_name, dataframe in results.__dict__.items():
+        dataframe.to_csv(output_dir / f"{table_name}.csv", index=False)
