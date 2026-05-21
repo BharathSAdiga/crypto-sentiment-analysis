@@ -17,6 +17,7 @@ from src.feature_engineering import (
     merge_trades_with_sentiment,
 )
 from src.preprocessing import preprocess_datasets
+from src.reporting import generate_pdf_report
 from src.utils import (
     CHARTS_DIR,
     PROCESSED_DATA_DIR,
@@ -92,6 +93,11 @@ def main() -> None:
             analysis_results,
             CHARTS_DIR,
         )
+        report_path = generate_pdf_report(
+            analysis_results,
+            advanced_results,
+            chart_paths,
+        )
     except (FileNotFoundError, SchemaValidationError) as error:
         LOGGER.error("Dataset loading failed: %s", error)
         raise SystemExit(1) from error
@@ -135,6 +141,7 @@ def main() -> None:
     print(f"Analysis tables saved to {REPORTS_DIR.relative_to(PROJECT_ROOT)}")
     print(f"Charts saved: {len(chart_paths)}")
     print(f"Advanced analytics tables saved: {len(advanced_results.__dict__)}")
+    print(f"PDF report saved to {report_path.relative_to(PROJECT_ROOT)}")
 
 
 if __name__ == "__main__":
